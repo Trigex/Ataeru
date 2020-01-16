@@ -175,7 +175,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	file, handler, err := r.FormFile("file")
 	if file == nil {
-		w.Write([]byte("No file keyfound, please use file= to upload files\n"))
+		w.Write([]byte("No file key found, please use file= to upload files\n"))
 		return
 	}
 	defer file.Close()
@@ -247,7 +247,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// send the user back the location of the file
-	w.Write([]byte(fmt.Sprintf("http://localhost:%s/storage/%s\n", APP_CONFIG.Port, filepath.Base(filePath))))
+	w.Write([]byte(fmt.Sprintf("http://%s/storage/%s\n", r.Host, filepath.Base(filePath))))
 }
 
 func main() {
