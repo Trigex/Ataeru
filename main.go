@@ -174,6 +174,10 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	file, handler, err := r.FormFile("file")
+	if file == nil {
+		w.Write([]byte("No file keyfound, please use file= to upload files\n"))
+		return
+	}
 	defer file.Close()
 	if err != nil {
 		log.Printf("Error retriving file from multipart form: %s", err.Error())
