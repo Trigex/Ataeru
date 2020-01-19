@@ -23,6 +23,7 @@ const (
 	ATAERU_STORAGE_DIR   = "./store"
 	ATAERU_MAX_FILE_SIZE = "2" // in MB
 	ATAERU_PUBLIC_UPLOAD = "true"
+	ATAERU_FILE_HASHING = "false"
 )
 
 // config global instance
@@ -33,6 +34,7 @@ type config struct {
 	StorageDir   string
 	MaxFileSize  int64 // in mb
 	PublicUpload bool
+	FileHashing bool
 }
 
 func getEnvOrDefault(key string, defaultVal string) string {
@@ -83,6 +85,7 @@ func initializeEnv() (config, error) {
 	storageDir := getEnvOrDefault("ATAERU_STORAGE_DIR", ATAERU_STORAGE_DIR)
 	maxFileSize := getEnvOrDefault("ATAERU_MAX_FILE_SIZE", ATAERU_MAX_FILE_SIZE)
 	publicUpload := getEnvOrDefault("ATAERU_PUBLIC_UPLOAD", ATAERU_PUBLIC_UPLOAD)
+	fileHashing := getEnvOrDefault("ATAERU_FILE_HASHING", ATAERU_FILE_HASHING)
 
 	// if the storageDir path doesn't exist, create it!
 	if _, err := os.Stat(storageDir); os.IsNotExist(err) {
@@ -106,12 +109,13 @@ func initializeEnv() (config, error) {
 	// convert non string values
 	maxFileSizeConv, err := strconv.ParseInt(maxFileSize, 10, 64)
 	publicUploadConv, err := strconv.ParseBool(publicUpload)
+	fileHashingConv, err := strconv.ParseBool(fileHashing)
 	if err != nil {
 		return conf, fmt.Errorf("Error while converting strings to native values: %s", err.Error())
 	}
 
 	// init our conf struct
-	conf = config{Port: port, StorageDir: storageDir, MaxFileSize: maxFileSizeConv, PublicUpload: publicUploadConv}
+	conf = config{Port: port, StorageDir: storageDir, MaxFileSize: maxFileSizeConv, PublicUpload: publicUploadConv, FileHashing: fileHashingConv}
 
 	return conf, nil
 }
@@ -175,7 +179,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	file, handler, err := r.FormFile("file")
 	if file == nil {
-		w.Write([]byte("No file keyfound, please use file= to upload files\n"))
+		w.Write([]byte("No file key found, please use file= to upload files\n"))
 		return
 	}
 	defer file.Close()
@@ -219,25 +223,34 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	filePath := filepath.Join(filepath.Join(APP_CONFIG.StorageDir, "/files"), uploadedFilename)
 
 	// get hash of file to check if it's already been uploaded
-	hash := getBufferFileHash(&buf)
-	hashPath := filepath.Join(APP_CONFIG.StorageDir, "/hashes", hash)
-	// check if filename with hash exists under /hashes
-	if _, err := os.Stat(hashPath); err == nil {
-		// hash exists, give user the already existant file
-		hashFilename, err := ioutil.ReadFile(hashPath)
-		if err != nil {
-			log.Printf("Error while trying to read hashfile!: %s", err)
-		}
+	if APP_CONFIG.FileHashing == true {
+		hash := getBufferFileHash(&buf)
+		hashPath := filepath.Join(APP_CONFIG.StorageDir, "/hashes", hash)
+		// check if filename with hash exists under /hashes
+		if _, err := os.Stat(hashPath); err == nil {
+			// hash exists, give user the already existant file
+			hashFilename, err := ioutil.ReadFile(hashPath)
+			if err != nil {
+				log.Printf("Error while trying to read hashfile!: %s", err)
+			}
 
-		// new filename is the contents of the read hashfile
-		filePath = filepath.Join(filepath.Join(APP_CONFIG.StorageDir, "/files"), string(hashFilename))
+			// new filename is the contents of the read hashfile
+			filePath = filepath.Join(filepath.Join(APP_CONFIG.StorageDir, "/files"), string(hashFilename))
+		} else {
+			// create file with the filename as it's contents, give it the name of the hash
+			err = ioutil.WriteFile(hashPath, []byte(uploadedFilename+"\n"), 0644)
+			if err != nil {
+				log.Printf("Error while attempting to write hashfile: %s", err.Error())
+			}
+
+			// write buffer to to new file
+			err = ioutil.WriteFile(filePath, buf, 0644)
+			if err != nil {
+				log.Printf("Eror while attempting to write buffer to new file: %s", err.Error())
+				return
+			}
+	   }
 	} else {
-		// create file with the filename as it's contents, give it the name of the hash
-		err = ioutil.WriteFile(hashPath, []byte(uploadedFilename+"\n"), 0644)
-		if err != nil {
-			log.Printf("Error while attempting to write hashfile: %s", err.Error())
-		}
-
 		// write buffer to to new file
 		err = ioutil.WriteFile(filePath, buf, 0644)
 		if err != nil {
@@ -247,7 +260,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// send the user back the location of the file
-	w.Write([]byte(fmt.Sprintf("http://localhost:%s/storage/%s\n", APP_CONFIG.Port, filepath.Base(filePath))))
+	w.Write([]byte(fmt.Sprintf("http://%s/storage/%s\n", r.Host, filepath.Base(filePath))))
 }
 
 func main() {
